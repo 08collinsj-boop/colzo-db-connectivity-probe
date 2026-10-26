@@ -20,7 +20,22 @@ jobs:
 
           host = "aws-1-eu-west-1.pooler.supabase.com"
           port = 5432
-          context = ssl.create_default_context()
+          import urllib.request
+          from urllib.parse import urlparse
+
+          # Supabase's CA isn't included in Ubuntu's system trust store.
+          # Retrieve only the public CA over verified HTTPS, never disable TLS verification.
+          ca_url = "https://supabase.com/downloads/prod-ca-2021.crt"
+          with urllib.request.urlopen(ca_url, timeout=15) as response:
+              if urlparse(response.geturl()).hostname != "supabase.com":
+                  raise RuntimeError("CA download redirected off the official Supabase hostname")
+              ca_pem = response.read(16000).decode("ascii")
+          if ca_pem.count("-----BEGIN CERTIFICATE-----") != 1 or ca_pem.count("-----END CERTIFICATE-----") != 1:
+              raise RuntimeError("Supabase CA response is not a single PEM certificate")
+          # Fail closed: both the CA chain and the exact pooler hostname must verify.
+          context = ssl.create_default_context(cadata=ca_pem)
+          if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
+              raise RuntimeError("Unexpectedly disabled certificate verification")
 
           with socket.create_connection((host, port), timeout=15) as connection:
               connection.settimeout(15)
