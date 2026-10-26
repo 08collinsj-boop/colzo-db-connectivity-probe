@@ -20,19 +20,38 @@ jobs:
 
           host = "aws-1-eu-west-1.pooler.supabase.com"
           port = 5432
-          import urllib.request
-          from urllib.parse import urlparse
+          import hashlib
 
-          # Supabase's CA isn't included in Ubuntu's system trust store.
-          # Retrieve only the public CA over verified HTTPS, never disable TLS verification.
-          ca_url = "https://supabase.com/downloads/prod-ca-2021.crt"
-          with urllib.request.urlopen(ca_url, timeout=15) as response:
-              if urlparse(response.geturl()).hostname != "supabase.com":
-                  raise RuntimeError("CA download redirected off the official Supabase hostname")
-              ca_pem = response.read(16000).decode("ascii")
-          if ca_pem.count("-----BEGIN CERTIFICATE-----") != 1 or ca_pem.count("-----END CERTIFICATE-----") != 1:
-              raise RuntimeError("Supabase CA response is not a single PEM certificate")
-          # Fail closed: both the CA chain and the exact pooler hostname must verify.
+          # Public Supabase Root 2021 CA; pinned by DER SHA256.
+          # The CA fingerprint is documented publicly in supabase/supabase#50862.
+          # No runtime download, authentication, SQL, secrets, or artifacts.
+          ca_pem = """-----BEGIN CERTIFICATE-----
+          MIIDxDCCAqygAwIBAgIUbLxMod62P2ktCiAkxnKJwtE9VPYwDQYJKoZIhvcNAQEL
+          BQAwazELMAkGA1UEBhMCVVMxEDAOBgNVBAgMB0RlbHdhcmUxEzARBgNVBAcMCk5l
+          dyBDYXN0bGUxFTATBgNVBAoMDFN1cGFiYXNlIEluYzEeMBwGA1UEAwwVU3VwYWJh
+          c2UgUm9vdCAyMDIxIENBMB4XDTIxMDQyODEwNTY1M1oXDTMxMDQyNjEwNTY1M1ow
+          azELMAkGA1UEBhMCVVMxEDAOBgNVBAgMB0RlbHdhcmUxEzARBgNVBAcMCk5ldyBD
+          YXN0bGUxFTATBgNVBAoMDFN1cGFiYXNlIEluYzEeMBwGA1UEAwwVU3VwYWJhc2Ug
+          Um9vdCAyMDIxIENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqQXW
+          QyHOB+qR2GJobCq/CBmQ40G0oDmCC3mzVnn8sv4XNeWtE5XcEL0uVih7Jo4Dkx1Q
+          DmGHBH1zDfgs2qXiLb6xpw/CKQPypZW1JssOTMIfQppNQ87K75Ya0p25Y3ePS2t2
+          GtvHxNjUV6kjOZjEn2yWEcBdpOVCUYBVFBNMB4YBHkNRDa/+S4uywAoaTWnCJLUi
+          cvTlHmMw6xSQQn1UfRQHk50DMCEJ7Cy1RxrZJrkXXRP3LqQL2ijJ6F4yMfh+Gyb4
+          O4XajoVj/+R4GwywKYrrS8PrSNtwxr5StlQO8zIQUSMiq26wM8mgELFlS/32Uclt
+          NaQ1xBRizkzpZct9DwIDAQABo2AwXjALBgNVHQ8EBAMCAQYwHQYDVR0OBBYEFKjX
+          uXY32CztkhImng4yJNUtaUYsMB8GA1UdIwQYMBaAFKjXuXY32CztkhImng4yJNUt
+          aUYsMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAB8spzNn+4VU
+          tVxbdMaX+39Z50sc7uATmus16jmmHjhIHz+l/9GlJ5KqAMOx26mPZgfzG7oneL2b
+          VW+WgYUkTT3XEPFWnTp2RJwQao8/tYPXWEJDc0WVQHrpmnWOFKU/d3MqBgBm5y+6
+          jB81TU/RG2rVerPDWP+1MMcNNy0491CTL5XQZ7JfDJJ9CCmXSdtTl4uUQnSuv/Qx
+          Cea13BX2ZgJc7Au30vihLhub52De4P/4gonKsNHYdbWjg7OWKwNv/zitGDVDB9Y2
+          CMTyZKG3XEu5Ghl1LEnI3QmEKsqaCLv12BnVjbkSeZsMnevJPs1Ye6TjjJwdik5P
+          o/bKiIz+Fq8=
+          -----END CERTIFICATE-----"""
+          ca_digest = hashlib.sha256(ssl.PEM_cert_to_DER_cert(ca_pem)).hexdigest()
+          expected_ca_digest = "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa"
+          if ca_digest != expected_ca_digest:
+              raise RuntimeError("Supabase root CA SHA256 did not match pinned certificate")
           context = ssl.create_default_context(cadata=ca_pem)
           if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
               raise RuntimeError("Unexpectedly disabled certificate verification")
